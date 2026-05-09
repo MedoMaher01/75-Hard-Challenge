@@ -49,8 +49,8 @@ cp .env.example .env.local
 5. Fill in `.env.local`:
 
 ```bash
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-public-anon-key
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-public-publishable-key
 ```
 
 6. Start the dev server:
@@ -75,7 +75,7 @@ It attaches a demo challenge, check-ins, public reflection, and reset event to t
 npm run build
 ```
 
-The static output is created in `dist/`. Configure your hosting provider with the same two `VITE_SUPABASE_*` environment variables.
+The static output is created in `dist/`. Configure your hosting provider with the same two `NEXT_PUBLIC_SUPABASE_*` environment variables. The Vite config explicitly allows this prefix so the static frontend can use Supabase's publishable browser key.
 
 ## Database Model
 
