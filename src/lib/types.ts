@@ -1,7 +1,8 @@
 export type ChallengeStatus = 'active' | 'completed' | 'paused';
 export type ReflectionVisibility = 'private' | 'buddies' | 'public';
 export type HabitVisibility = 'private' | 'buddies' | 'public';
-export type UserRole = 'user' | 'moderator' | 'admin';
+export type UserRole = 'user' | 'moderator' | 'super_admin';
+export type AccountStatus = 'active' | 'suspended' | 'banned';
 
 export interface Profile {
   id: string;
@@ -11,8 +12,12 @@ export interface Profile {
   bio: string | null;
   is_private: boolean;
   role: UserRole;
+  account_status: AccountStatus;
+  suspended_until: string | null;
+  banned_at: string | null;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
 }
 
 export interface VisibilitySettings {
@@ -38,6 +43,8 @@ export interface ChallengeTemplate {
   is_active: boolean;
   sort_order: number;
   created_at: string;
+  updated_at?: string;
+  deleted_at?: string | null;
 }
 
 export interface HabitDefinition {
@@ -50,6 +57,8 @@ export interface HabitDefinition {
   visibility_default: HabitVisibility;
   sort_order: number;
   created_at: string;
+  updated_at?: string;
+  deleted_at?: string | null;
 }
 
 export interface TemplateWithHabits extends ChallengeTemplate {
@@ -71,6 +80,7 @@ export interface Challenge {
   resets_count: number;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
   challenge_templates?: ChallengeTemplate;
 }
 
@@ -83,6 +93,7 @@ export interface HabitCheckin {
   is_private: boolean;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
 }
 
 export interface Reflection {
@@ -97,6 +108,7 @@ export interface Reflection {
   reports_count: number;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
 }
 
 export interface ResetEvent {
@@ -109,6 +121,8 @@ export interface ResetEvent {
   previous_streak: number;
   reason: string;
   created_at: string;
+  updated_at?: string;
+  deleted_at?: string | null;
 }
 
 export interface PublicProgress {
@@ -133,4 +147,62 @@ export interface SubmitCheckinResult {
   current_day: number;
   current_streak: number;
   status: ChallengeStatus;
+}
+
+export interface AdminUser {
+  id: string;
+  display_name: string;
+  username: string;
+  role: UserRole;
+  account_status: AccountStatus;
+  suspended_until: string | null;
+  banned_at: string | null;
+  is_private: boolean;
+  created_at: string;
+  updated_at: string;
+  challenge_count: number;
+  reflection_count: number;
+}
+
+export interface ModerationReport {
+  report_id: string;
+  status: 'open' | 'reviewing' | 'actioned' | 'dismissed';
+  reason: string;
+  created_at: string;
+  reporter_username: string | null;
+  author_id: string | null;
+  author_username: string | null;
+  reflection_id: string | null;
+  reflection_body: string | null;
+  learned_today: string | null;
+  is_hidden: boolean | null;
+  reports_count: number | null;
+}
+
+export interface PopularHabitStat {
+  name: string;
+  completed_count: number;
+}
+
+export interface AdminAnalytics {
+  total_users: number;
+  active_users_7d: number;
+  daily_checkins: number;
+  total_challenges: number;
+  completed_challenges: number;
+  completion_rate: number;
+  reset_count: number;
+  open_reports: number;
+  popular_habits: PopularHabitStat[];
+}
+
+export interface AuditLogEntry {
+  id: string;
+  actor_username: string | null;
+  target_username: string | null;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
 }

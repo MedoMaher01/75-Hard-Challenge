@@ -1,6 +1,6 @@
 import type { Profile } from '../lib/types';
 
-export type AppView = 'today' | 'community' | 'settings' | 'admin';
+export type AppView = 'dashboard' | 'today' | 'community' | 'settings' | 'admin';
 
 interface AppHeaderProps {
   activeView: AppView;
@@ -10,7 +10,7 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({ activeView, profile, onChangeView, onSignOut }: AppHeaderProps) {
-  const canModerate = profile?.role === 'admin' || profile?.role === 'moderator';
+  const canModerate = profile?.role === 'super_admin' || profile?.role === 'moderator';
 
   return (
     <header className="app-header">
@@ -23,6 +23,9 @@ export function AppHeader({ activeView, profile, onChangeView, onSignOut }: AppH
       </a>
 
       <nav className="app-nav" aria-label="Primary navigation">
+        <button className={activeView === 'dashboard' ? 'active' : ''} type="button" onClick={() => onChangeView('dashboard')}>
+          Dashboard
+        </button>
         <button className={activeView === 'today' ? 'active' : ''} type="button" onClick={() => onChangeView('today')}>
           Today
         </button>
@@ -42,13 +45,13 @@ export function AppHeader({ activeView, profile, onChangeView, onSignOut }: AppH
         </button>
         {canModerate ? (
           <button className={activeView === 'admin' ? 'active' : ''} type="button" onClick={() => onChangeView('admin')}>
-            Admin
+            {profile?.role === 'super_admin' ? 'Admin' : 'Moderation'}
           </button>
         ) : null}
       </nav>
 
       <div className="header-user">
-        <span>{profile?.display_name ?? 'Member'}</span>
+        <span>{profile?.display_name ?? 'Member'} · {profile?.role.replace('_', ' ') ?? 'user'}</span>
         <button className="ghost-button" type="button" onClick={onSignOut}>
           Log out
         </button>

@@ -10,7 +10,7 @@ create table if not exists public.profiles (
   avatar_url text,
   bio text,
   is_private boolean not null default false,
-  role text not null default 'user' check (role in ('user', 'moderator', 'admin')),
+  role text not null default 'user' check (role in ('user', 'moderator', 'super_admin')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -169,7 +169,7 @@ set search_path = public
 as $$
   select exists (
     select 1 from public.profiles
-    where id = viewer and role in ('admin', 'moderator')
+    where id = viewer and role in ('super_admin', 'moderator')
   );
 $$;
 
@@ -273,8 +273,11 @@ security definer
 set search_path = public
 as $$
 begin
-  if new.role is distinct from old.role and not public.is_moderator(auth.uid()) then
-    raise exception 'Only moderators can change profile roles.';
+  if new.role is distinct from old.role and not exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role = 'super_admin'
+  ) then
+    raise exception 'Only super admins can change profile roles.';
   end if;
   return new;
 end;

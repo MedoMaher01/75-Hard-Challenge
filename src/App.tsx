@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { AdminModeration } from './components/AdminModeration';
+import { AdminDashboard } from './components/AdminDashboard';
 import { AppHeader, type AppView } from './components/AppHeader';
 import { AuthView } from './components/AuthView';
 import { ChallengePicker } from './components/ChallengePicker';
 import { Community } from './components/Community';
+import { DashboardSidebar } from './components/DashboardSidebar';
 import { DailyCheckIn } from './components/DailyCheckIn';
 import { ProgressDashboard } from './components/ProgressDashboard';
+import { ProtectedView } from './components/ProtectedView';
 import { SettingsPanel } from './components/SettingsPanel';
 import { SetupNotice } from './components/SetupNotice';
+import { ToastHost, type ToastMessage, type ToastTone } from './components/ToastHost';
+import { UserDashboard } from './components/UserDashboard';
 import {
   createChallenge,
   ensureProfile,
@@ -43,7 +47,7 @@ import type {
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [booting, setBooting] = useState(true);
-  const [activeView, setActiveView] = useState<AppView>('today');
+  const [activeView, setActiveView] = useState<AppView>('dashboard');
   const [profile, setProfile] = useState<Profile | null>(null);
   const [settings, setSettings] = useState<VisibilitySettings | null>(null);
   const [templates, setTemplates] = useState<TemplateWithHabits[]>([]);
@@ -58,6 +62,7 @@ export default function App() {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -174,7 +179,17 @@ export default function App() {
     ? templates.find((template) => template.id === activeChallenge.template_id) ?? null
     : null;
   const activeHabits = templateHabits(activeTemplate);
-  const canModerate = profile?.role === 'admin' || profile?.role === 'moderator';
+  const canModerate = profile?.role === 'super_admin' || profile?.role === 'moderator';
+
+  function notify(message: string, tone: ToastTone = 'info') {
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    setToasts((current) => [...current, { id, message, tone }]);
+    window.setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 5000);
+  }
+
+  function refreshApp() {
+    setRefreshKey((key) => key + 1);
+  }
 
   async function handleStartChallenge(template: TemplateWithHabits) {
     if (!session?.user) return;
@@ -184,7 +199,8 @@ export default function App() {
       const created = await createChallenge(session.user.id, template);
       setActiveChallengeId(created.id);
       setActiveView('today');
-      setRefreshKey((key) => key + 1);
+      notify('Challenge joined. Daily check-ins are ready.', 'success');
+      refreshApp();
     } catch (caught) {
       setGlobalError(caught instanceof Error ? caught.message : 'Could not create challenge.');
     } finally {
@@ -208,7 +224,7 @@ export default function App() {
       learnedToday: input.learnedToday,
       reflectionVisibility: input.reflectionVisibility,
     });
-    setRefreshKey((key) => key + 1);
+    refreshApp();
     return result;
   }
 
@@ -220,7 +236,21 @@ export default function App() {
     >,
   ) {
     await Promise.all([updateProfile(nextProfile), updateVisibilitySettings(nextProfile.id, nextSettings)]);
-    setRefreshKey((key) => key + 1);
+    notify('Settings saved.', 'success');
+    refreshApp();
+  }
+
+  async function handleTogglePrivate() {
+    if (!profile) return;
+    await updateProfile({
+      id: profile.id,
+      display_name: profile.display_name,
+      username: profile.username,
+      bio: profile.bio,
+      is_private: !profile.is_private,
+    });
+    notify(`Account is now ${profile.is_private ? 'public' : 'private'}.`, 'success');
+    refreshApp();
   }
 
   async function handleSignOut() {
@@ -229,7 +259,7 @@ export default function App() {
     setSettings(null);
     setChallenges([]);
     setActiveChallengeId(null);
-    setActiveView('today');
+    setActiveView('dashboard');
   }
 
   if (!isSupabaseConfigured) return <SetupNotice />;
@@ -239,6 +269,7 @@ export default function App() {
   return (
     <div className="app-shell" id="top">
       <AppHeader activeView={activeView} profile={profile} onChangeView={setActiveView} onSignOut={handleSignOut} />
+      <ToastHost toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />
 
       {globalError ? (
         <div className="global-alert" role="alert">
@@ -247,6 +278,33 @@ export default function App() {
       ) : null}
 
       {loadingData ? <p className="loading-pill">Syncing challenge data...</p> : null}
+
+      {profile?.account_status && profile.account_status !== 'active' ? (
+        <div className="global-alert" role="alert">
+          Your account is {profile.account_status}. Server-side policies may block check-ins, reports, and community actions.
+        </div>
+      ) : null}
+
+      <div className="dashboard-frame">
+        <DashboardSidebar activeView={activeView} profile={profile} onChangeView={setActiveView} />
+        <div className="dashboard-content">
+
+      {activeView === 'dashboard' && profile ? (
+        <UserDashboard
+          profile={profile}
+          settings={settings}
+          challenges={challenges}
+          activeChallenge={activeChallenge}
+          activeTemplate={activeTemplate}
+          habits={activeHabits}
+          checkins={checkins}
+          resetEvents={resetEvents}
+          reflection={reflection}
+          onOpenToday={() => setActiveView('today')}
+          onOpenSettings={() => setActiveView('settings')}
+          onTogglePrivate={handleTogglePrivate}
+        />
+      ) : null}
 
       {activeView === 'today' ? (
         <main className="content-grid">
@@ -301,7 +359,13 @@ export default function App() {
         <SettingsPanel profile={profile} settings={settings} onSave={handleSaveSettings} />
       ) : null}
 
-      {activeView === 'admin' && profile && canModerate ? <AdminModeration profile={profile} /> : null}
+      {activeView === 'admin' ? (
+        <ProtectedView profile={profile} allowedRoles={['super_admin', 'moderator']}>
+          {profile && canModerate ? <AdminDashboard profile={profile} onNotify={notify} onRefreshApp={refreshApp} /> : null}
+        </ProtectedView>
+      ) : null}
+        </div>
+      </div>
     </div>
   );
 }

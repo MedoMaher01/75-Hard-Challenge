@@ -2,11 +2,16 @@ import type { User } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { todayISO } from './dates';
 import type {
+  AccountStatus,
+  AdminAnalytics,
+  AdminUser,
+  AuditLogEntry,
   Challenge,
   ChallengeTemplate,
   HabitCheckin,
   HabitDefinition,
   HabitVisibility,
+  ModerationReport,
   Profile,
   PublicProgress,
   PublicReflection,
@@ -16,6 +21,7 @@ import type {
   SubmitCheckinResult,
   TemplateWithHabits,
   VisibilitySettings,
+  UserRole,
 } from './types';
 
 function usernameFromUser(user: User) {
@@ -76,6 +82,17 @@ export async function loadTemplates(): Promise<TemplateWithHabits[]> {
     .from('challenge_templates')
     .select('*, habit_definitions(*)')
     .eq('is_active', true)
+    .order('sort_order', { ascending: true })
+    .order('sort_order', { foreignTable: 'habit_definitions', ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as TemplateWithHabits[];
+}
+
+export async function loadManageableTemplates(): Promise<TemplateWithHabits[]> {
+  const { data, error } = await supabase
+    .from('challenge_templates')
+    .select('*, habit_definitions(*)')
     .order('sort_order', { ascending: true })
     .order('sort_order', { foreignTable: 'habit_definitions', ascending: true });
 
@@ -223,9 +240,114 @@ export async function updateVisibilitySettings(
   if (error) throw error;
 }
 
-export async function reportReflection(reflectionId: string) {
+export async function reportReflection(reflectionId: string, reason = 'Community report') {
   const { error } = await supabase.rpc('report_reflection', {
     p_reflection_id: reflectionId,
+    p_reason: reason,
+  });
+
+  if (error) throw error;
+}
+
+export async function loadAdminUsers(search = ''): Promise<AdminUser[]> {
+  const { data, error } = await supabase.rpc('admin_list_users', {
+    p_search: search.trim() || null,
+    p_limit: 50,
+  });
+
+  if (error) throw error;
+  return (data ?? []) as AdminUser[];
+}
+
+export async function loadModerationReports(status: 'open' | 'reviewing' | 'actioned' | 'dismissed' | null = 'open'):
+  Promise<ModerationReport[]> {
+  const { data, error } = await supabase.rpc('admin_list_reports', {
+    p_status: status,
+    p_limit: 50,
+  });
+
+  if (error) throw error;
+  return (data ?? []) as ModerationReport[];
+}
+
+export async function loadAdminAnalytics(): Promise<AdminAnalytics> {
+  const { data, error } = await supabase.rpc('admin_get_analytics');
+
+  if (error) throw error;
+  return data as AdminAnalytics;
+}
+
+export async function changeUserRole(userId: string, role: UserRole, reason: string) {
+  const { error } = await supabase.rpc('admin_change_user_role', {
+    p_user_id: userId,
+    p_new_role: role,
+    p_reason: reason,
+  });
+
+  if (error) throw error;
+}
+
+export async function setUserStatus(input: {
+  userId: string;
+  status: AccountStatus;
+  suspendedUntil: string | null;
+  reason: string;
+}) {
+  const { error } = await supabase.rpc('admin_set_user_status', {
+    p_user_id: input.userId,
+    p_status: input.status,
+    p_suspended_until: input.suspendedUntil,
+    p_reason: input.reason,
+  });
+
+  if (error) throw error;
+}
+
+export async function warnUser(userId: string, reason: string) {
+  const { error } = await supabase.rpc('admin_warn_user', {
+    p_user_id: userId,
+    p_reason: reason,
+  });
+
+  if (error) throw error;
+}
+
+export async function moderateReflection(reflectionId: string, action: 'hide' | 'unhide' | 'delete' | 'dismiss_report', reason: string) {
+  const { error } = await supabase.rpc('admin_moderate_reflection', {
+    p_reflection_id: reflectionId,
+    p_action: action,
+    p_reason: reason,
+  });
+
+  if (error) throw error;
+}
+
+export async function loadAuditLogs(): Promise<AuditLogEntry[]> {
+  const { data, error } = await supabase.rpc('admin_list_audit_logs', {
+    p_limit: 100,
+  });
+
+  if (error) throw error;
+  return (data ?? []) as AuditLogEntry[];
+}
+
+export async function updateChallengeTemplate(template: Pick<ChallengeTemplate, 'id' | 'name' | 'description' | 'is_active' | 'strict_mode'>) {
+  const { error } = await supabase.rpc('admin_update_template', {
+    p_template_id: template.id,
+    p_name: template.name,
+    p_description: template.description,
+    p_is_active: template.is_active,
+    p_strict_mode: template.strict_mode,
+  });
+
+  if (error) throw error;
+}
+
+export async function updateSystemSetting(key: string, value: unknown, description: string) {
+  const { error } = await supabase.rpc('admin_upsert_setting', {
+    p_key: key,
+    p_value: value,
+    p_description: description,
   });
 
   if (error) throw error;
