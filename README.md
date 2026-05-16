@@ -8,7 +8,7 @@ A privacy-first, community-oriented habit challenge tracker built with **React +
 
 ```
 src/
-├── App.tsx                  # Root — auth, data loading, view routing
+├── App.tsx                  # Provider composition + route shell
 ├── components/
 │   ├── AppHeader.tsx        # Top nav + dark mode toggle
 │   ├── DashboardSidebar.tsx # Sidebar nav
@@ -25,6 +25,19 @@ src/
 │   ├── ErrorBoundary.tsx    # React error boundary
 │   ├── ToastHost.tsx        # Toast notification system
 │   └── SetupNotice.tsx      # Missing env vars notice
+├── providers/
+│   ├── AuthProvider.tsx     # Supabase session bootstrapping + sign out
+│   ├── ChallengeProvider.tsx # Profile, templates, challenges, check-ins, settings
+│   ├── CommunityProvider.tsx # Leaderboard/feed loading + scoped realtime refresh
+│   ├── ThemeProvider.tsx    # Persistent light/dark theme preference
+│   └── ToastProvider.tsx    # Toast notification host + notify helper
+├── routes/
+│   ├── DashboardRoute.tsx
+│   ├── ExploreRoute.tsx
+│   ├── TodayRoute.tsx
+│   ├── CommunityRoute.tsx
+│   ├── SettingsRoute.tsx
+│   └── AdminRoute.tsx
 └── lib/
     ├── supabase.ts          # Supabase browser client
     ├── api.ts               # All Supabase queries and RPC calls
@@ -38,6 +51,44 @@ supabase/
 ├── dashboard-rbac.sql       # RBAC tables, admin RPCs, moderation
 └── fixes.sql                # Targeted patches (run last)
 ```
+
+---
+
+## Frontend Architecture
+
+The frontend uses React Router for route-level separation while keeping Supabase as the backend source of truth.
+
+Routes:
+
+| Route | Purpose |
+|-------|---------|
+| `/` | Redirects to `/dashboard` |
+| `/dashboard` | User command center |
+| `/explore` | Challenge template browsing and join flow |
+| `/today` | Active challenge status and daily check-in |
+| `/challenge/:id` | Opens the daily challenge view for a specific challenge id |
+| `/community` | Public leaderboard and reflection feed |
+| `/settings` | Profile and privacy settings |
+| `/admin` | Moderator/admin dashboard; redirects non-privileged users |
+
+State is split by domain:
+
+- `AuthProvider` owns session bootstrapping and sign-out.
+- `ChallengeProvider` owns profile/settings, templates, user challenges, selected challenge details, and challenge mutation handlers.
+- `CommunityProvider` owns public progress/reflection data and subscribes only to community tables.
+- `ThemeProvider` stores the `hc-theme` preference in `localStorage` and applies `data-theme` to `<html>`.
+- `ToastProvider` centralizes toast state so route components do not duplicate notification logic.
+
+Route components are lazy-loaded so admin/community/check-in code is split from the initial shell bundle. Realtime updates now refresh community data through `CommunityProvider` instead of forcing the whole app data set to reload.
+
+Developer workflow includes:
+
+```bash
+npm run lint
+npm run build
+```
+
+`npm run lint` uses ESLint with TypeScript and React Hooks rules. Formatting remains manual/lightweight; no formatter is required.
 
 ---
 

@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useState } from 'react';
 import {
   changeUserRole,
   createChallengeTemplate,
@@ -16,7 +16,6 @@ import {
 } from '../lib/api';
 import { formatTimestamp } from '../lib/dates';
 import type {
-  AccountStatus,
   AdminAnalytics,
   AdminUser,
   AuditLogEntry,
@@ -199,7 +198,7 @@ export function AdminDashboard({ profile, onNotify, onRefreshApp }: AdminDashboa
     { key: 'audit', label: 'Audit logs', superOnly: true },
   ];
 
-  async function loadDashboard(nextSearch = search) {
+  const loadDashboard = useCallback(async (nextSearch = '') => {
     setLoading(true); setError(null);
     try {
       const [nextAnalytics, nextUsers, nextReports] = await Promise.all([
@@ -215,14 +214,14 @@ export function AdminDashboard({ profile, onNotify, onRefreshApp }: AdminDashboa
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load dashboard.');
     } finally { setLoading(false); }
-  }
+  }, [isSuperAdmin]);
 
-  useEffect(() => { void loadDashboard(''); }, [isSuperAdmin]);
+  useEffect(() => { void loadDashboard(''); }, [loadDashboard]);
 
   async function withAction(action: () => Promise<void>, success: string) {
     setError(null);
     try {
-      await action(); onNotify(success, 'success'); await loadDashboard(); onRefreshApp();
+      await action(); onNotify(success, 'success'); await loadDashboard(search); onRefreshApp();
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Action failed.';
       setError(msg); onNotify(msg, 'error');

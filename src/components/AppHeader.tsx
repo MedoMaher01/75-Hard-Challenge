@@ -14,7 +14,6 @@ interface AppHeaderProps {
 
 export function AppHeader({ activeView, profile, theme, onChangeView, onToggleTheme, onSignOut }: AppHeaderProps) {
   const canModerate = profile?.role === 'super_admin' || profile?.role === 'moderator';
-  const hasActiveChallenge = true; // header doesn't need this — sidebar/today view handles it
 
   return (
     <header className="app-header">

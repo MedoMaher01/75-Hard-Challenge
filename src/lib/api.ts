@@ -10,7 +10,6 @@ import type {
   ChallengeTemplate,
   HabitCheckin,
   HabitDefinition,
-  HabitVisibility,
   ModerationReport,
   NewTemplateInput,
   Profile,
