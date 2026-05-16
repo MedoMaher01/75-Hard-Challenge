@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
+import { ActiveChallenge } from './components/ActiveChallenge';
 import { AdminDashboard } from './components/AdminDashboard';
 import { AppHeader, type AppView } from './components/AppHeader';
 import { AuthView } from './components/AuthView';
-import { ChallengePicker } from './components/ChallengePicker';
+import { ChallengeExplorer } from './components/ChallengeExplorer';
 import { Community } from './components/Community';
 import { DashboardSidebar } from './components/DashboardSidebar';
 import { DailyCheckIn } from './components/DailyCheckIn';
@@ -17,6 +18,7 @@ import {
   createChallenge,
   ensureProfile,
   ensureVisibilitySettings,
+  leaveChallenge,
   loadDailyCheckins,
   loadPublicProgress,
   loadPublicReflections,
@@ -31,6 +33,7 @@ import {
   updateVisibilitySettings,
 } from './lib/api';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
+import { applyTheme, getStoredTheme, toggleTheme } from './lib/theme';
 import type {
   Challenge,
   HabitCheckin,
@@ -41,29 +44,62 @@ import type {
   ResetEvent,
   SubmitCheckinResult,
   TemplateWithHabits,
+  Theme,
   VisibilitySettings,
 } from './lib/types';
 
 export default function App() {
+  // ── Auth ──────────────────────────────────────────────────────────────────
   const [session, setSession] = useState<Session | null>(null);
   const [booting, setBooting] = useState(true);
+
+  // ── UI state ──────────────────────────────────────────────────────────────
   const [activeView, setActiveView] = useState<AppView>('dashboard');
+  const [theme, setTheme] = useState<Theme>(() => getStoredTheme());
+
+  // ── App data ──────────────────────────────────────────────────────────────
   const [profile, setProfile] = useState<Profile | null>(null);
   const [settings, setSettings] = useState<VisibilitySettings | null>(null);
   const [templates, setTemplates] = useState<TemplateWithHabits[]>([]);
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [activeChallengeId, setActiveChallengeId] = useState<string | null>(null);
+
+  // ── Challenge-specific data ───────────────────────────────────────────────
   const [checkins, setCheckins] = useState<HabitCheckin[]>([]);
   const [reflection, setReflection] = useState<Reflection | null>(null);
   const [resetEvents, setResetEvents] = useState<ResetEvent[]>([]);
+
+  // ── Community data ────────────────────────────────────────────────────────
   const [publicProgress, setPublicProgress] = useState<PublicProgress[]>([]);
   const [publicReflections, setPublicReflections] = useState<PublicReflection[]>([]);
+
+  // ── Loading / error ───────────────────────────────────────────────────────
   const [loadingData, setLoadingData] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // ── Toasts ────────────────────────────────────────────────────────────────
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Theme initialization
+  // ═══════════════════════════════════════════════════════════════════════════
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
+  function handleToggleTheme() {
+    setTheme((current) => {
+      const next = toggleTheme(current);
+      applyTheme(next);
+      return next;
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Auth listener
+  // ═══════════════════════════════════════════════════════════════════════════
   useEffect(() => {
     if (!isSupabaseConfigured) {
       setBooting(false);
@@ -87,11 +123,15 @@ export default function App() {
     };
   }, []);
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Load app data on login / refresh
+  // ═══════════════════════════════════════════════════════════════════════════
   useEffect(() => {
     if (!session?.user) return;
 
     const user = session.user;
     let cancelled = false;
+
     async function loadAppData() {
       setLoadingData(true);
       setGlobalError(null);
@@ -113,8 +153,9 @@ export default function App() {
         setPublicProgress(nextProgress);
         setPublicReflections(nextReflections);
         setActiveChallengeId((current) => {
-          if (current && nextChallenges.some((challenge) => challenge.id === current)) return current;
-          return nextChallenges[0]?.id ?? null;
+          // Keep current selection if it's still valid, otherwise default to first active
+          if (current && nextChallenges.some((c) => c.id === current)) return current;
+          return nextChallenges.find((c) => c.status === 'active')?.id ?? nextChallenges[0]?.id ?? null;
         });
       } catch (caught) {
         if (!cancelled) setGlobalError(caught instanceof Error ? caught.message : 'Could not load application data.');
@@ -124,8 +165,12 @@ export default function App() {
     }
 
     void loadAppData();
+    return () => { cancelled = true; };
   }, [session, refreshKey]);
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Load challenge-specific data when active challenge changes
+  // ═══════════════════════════════════════════════════════════════════════════
   useEffect(() => {
     if (!activeChallengeId) {
       setCheckins([]);
@@ -136,6 +181,7 @@ export default function App() {
 
     const challengeId = activeChallengeId;
     let cancelled = false;
+
     async function loadChallengeDetails() {
       setLoadingDetails(true);
       setGlobalError(null);
@@ -158,15 +204,21 @@ export default function App() {
     }
 
     void loadChallengeDetails();
+    return () => { cancelled = true; };
   }, [activeChallengeId, refreshKey]);
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Realtime subscription for community feed updates
+  // ═══════════════════════════════════════════════════════════════════════════
   useEffect(() => {
-    if (!session?.user) return;
+    if (!session?.user.id) return;
 
+    // Use a stable ID to prevent multiple subscriptions when session reference changes
+    const userId = session.user.id;
     const channel = supabase
-      .channel('community-progress')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'challenges' }, () => setRefreshKey((key) => key + 1))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'reflections' }, () => setRefreshKey((key) => key + 1))
+      .channel(`community-progress-${userId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'challenges' }, () => setRefreshKey((k) => k + 1))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reflections' }, () => setRefreshKey((k) => k + 1))
       .subscribe();
 
     return () => {
@@ -174,23 +226,32 @@ export default function App() {
     };
   }, [session?.user.id]);
 
-  const activeChallenge = challenges.find((challenge) => challenge.id === activeChallengeId) ?? null;
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Derived state
+  // ═══════════════════════════════════════════════════════════════════════════
+  const activeChallenge = challenges.find((c) => c.id === activeChallengeId) ?? null;
   const activeTemplate = activeChallenge
-    ? templates.find((template) => template.id === activeChallenge.template_id) ?? null
+    ? templates.find((t) => t.id === activeChallenge.template_id) ?? null
     : null;
   const activeHabits = templateHabits(activeTemplate);
   const canModerate = profile?.role === 'super_admin' || profile?.role === 'moderator';
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Helpers
+  // ═══════════════════════════════════════════════════════════════════════════
   function notify(message: string, tone: ToastTone = 'info') {
     const id = Date.now() + Math.floor(Math.random() * 1000);
     setToasts((current) => [...current, { id, message, tone }]);
-    window.setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 5000);
+    window.setTimeout(() => setToasts((current) => current.filter((t) => t.id !== id)), 5000);
   }
 
   function refreshApp() {
-    setRefreshKey((key) => key + 1);
+    setRefreshKey((k) => k + 1);
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Handlers
+  // ═══════════════════════════════════════════════════════════════════════════
   async function handleStartChallenge(template: TemplateWithHabits) {
     if (!session?.user) return;
     setLoadingData(true);
@@ -199,12 +260,31 @@ export default function App() {
       const created = await createChallenge(session.user.id, template);
       setActiveChallengeId(created.id);
       setActiveView('today');
-      notify('Challenge joined. Daily check-ins are ready.', 'success');
+      notify('Challenge joined — daily check-ins are ready.', 'success');
       refreshApp();
     } catch (caught) {
-      setGlobalError(caught instanceof Error ? caught.message : 'Could not create challenge.');
+      const message = caught instanceof Error ? caught.message : 'Could not create challenge.';
+      setGlobalError(message);
+      notify(message, 'error');
     } finally {
       setLoadingData(false);
+    }
+  }
+
+  async function handleLeaveChallenge(challengeId: string) {
+    setGlobalError(null);
+    try {
+      await leaveChallenge(challengeId);
+      // If we left the active challenge, clear it
+      if (activeChallengeId === challengeId) {
+        setActiveChallengeId(null);
+      }
+      notify('Challenge left. Your history is preserved.', 'success');
+      refreshApp();
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Could not leave challenge.';
+      notify(message, 'error');
+      throw caught; // re-throw so ActiveChallenge can show its inline error
     }
   }
 
@@ -262,18 +342,39 @@ export default function App() {
     setActiveView('dashboard');
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Render guards
+  // ═══════════════════════════════════════════════════════════════════════════
   if (!isSupabaseConfigured) return <SetupNotice />;
   if (booting) return <main className="setup-screen"><p className="loading-pill">Loading session...</p></main>;
   if (!session) return <AuthView />;
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Main layout
+  // ═══════════════════════════════════════════════════════════════════════════
   return (
     <div className="app-shell" id="top">
-      <AppHeader activeView={activeView} profile={profile} onChangeView={setActiveView} onSignOut={handleSignOut} />
-      <ToastHost toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />
+      <AppHeader
+        activeView={activeView}
+        profile={profile}
+        theme={theme}
+        onChangeView={setActiveView}
+        onToggleTheme={handleToggleTheme}
+        onSignOut={handleSignOut}
+      />
+      <ToastHost toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((t) => t.id !== id))} />
 
       {globalError ? (
         <div className="global-alert" role="alert">
           {globalError}
+          <button
+            className="ghost-button"
+            type="button"
+            style={{ marginLeft: '1rem', padding: '0.3rem 0.7rem', fontSize: '0.85rem' }}
+            onClick={() => setGlobalError(null)}
+          >
+            Dismiss
+          </button>
         </div>
       ) : null}
 
@@ -281,89 +382,139 @@ export default function App() {
 
       {profile?.account_status && profile.account_status !== 'active' ? (
         <div className="global-alert" role="alert">
-          Your account is {profile.account_status}. Server-side policies may block check-ins, reports, and community actions.
+          Your account is <strong>{profile.account_status}</strong>. Server-side policies may block check-ins, reports, and community actions.
         </div>
       ) : null}
 
       <div className="dashboard-frame">
-        <DashboardSidebar activeView={activeView} profile={profile} onChangeView={setActiveView} />
+        <DashboardSidebar
+          activeView={activeView}
+          profile={profile}
+          theme={theme}
+          onChangeView={setActiveView}
+          onToggleTheme={handleToggleTheme}
+        />
         <div className="dashboard-content">
 
-      {activeView === 'dashboard' && profile ? (
-        <UserDashboard
-          profile={profile}
-          settings={settings}
-          challenges={challenges}
-          activeChallenge={activeChallenge}
-          activeTemplate={activeTemplate}
-          habits={activeHabits}
-          checkins={checkins}
-          resetEvents={resetEvents}
-          reflection={reflection}
-          onOpenToday={() => setActiveView('today')}
-          onOpenSettings={() => setActiveView('settings')}
-          onTogglePrivate={handleTogglePrivate}
-        />
-      ) : null}
+          {/* ── Dashboard (home) ────────────────────────────────────────── */}
+          {activeView === 'dashboard' && profile ? (
+            <UserDashboard
+              profile={profile}
+              settings={settings}
+              challenges={challenges}
+              activeChallenge={activeChallenge}
+              activeTemplate={activeTemplate}
+              habits={activeHabits}
+              checkins={checkins}
+              resetEvents={resetEvents}
+              reflection={reflection}
+              onOpenToday={() => setActiveView('today')}
+              onOpenExplore={() => setActiveView('explore')}
+              onOpenSettings={() => setActiveView('settings')}
+              onTogglePrivate={handleTogglePrivate}
+            />
+          ) : null}
 
-      {activeView === 'today' ? (
-        <main className="content-grid">
-          <div className="left-column">
-            <ChallengePicker
+          {/* ── Challenge explorer ──────────────────────────────────────── */}
+          {activeView === 'explore' ? (
+            <ChallengeExplorer
               templates={templates}
               challenges={challenges}
-              activeChallengeId={activeChallengeId}
-              onSelectChallenge={setActiveChallengeId}
-              onStartChallenge={handleStartChallenge}
+              loading={loadingData}
+              onJoin={handleStartChallenge}
             />
-            {activeChallenge && activeTemplate ? (
-              <ProgressDashboard
-                challenge={activeChallenge}
-                template={activeTemplate}
-                habits={activeHabits}
-                checkins={checkins}
-                resetEvents={resetEvents}
-              />
-            ) : null}
-          </div>
+          ) : null}
 
-          <div className="right-column">
-            {activeChallenge && activeTemplate ? (
-              <>
-                {loadingDetails ? <p className="loading-pill">Loading today's check-in...</p> : null}
-                <DailyCheckIn
-                  challenge={activeChallenge}
-                  habits={activeHabits}
-                  checkins={checkins}
-                  reflection={reflection}
-                  defaultHabitVisibility={settings?.default_habit_visibility ?? 'private'}
-                  onSubmit={handleDailySubmit}
-                />
-              </>
-            ) : (
-              <section className="panel empty-state">
-                <p className="eyebrow">No active challenge</p>
-                <h2>Join a template to unlock daily check-ins.</h2>
-                <p>Templates define required and optional habits. Strict templates reset when required habits are missed.</p>
-              </section>
-            )}
-          </div>
-        </main>
-      ) : null}
+          {/* ── Today: active challenge + daily check-in ────────────────── */}
+          {activeView === 'today' ? (
+            <main className="content-grid today-view">
+              {/* Left column: active challenge status */}
+              <div className="left-column">
+                {activeChallenge && activeTemplate ? (
+                  <ActiveChallenge
+                    challenge={activeChallenge}
+                    template={activeTemplate}
+                    onGoToCheckIn={() => {
+                      // Scroll / focus right column — no-op on desktop since it's visible
+                      document.getElementById('checkin-section')?.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                    onLeave={handleLeaveChallenge}
+                  />
+                ) : null}
 
-      {activeView === 'community' ? (
-        <Community progress={publicProgress} reflections={publicReflections} onReportReflection={reportReflection} />
-      ) : null}
+                {activeChallenge && activeTemplate ? (
+                  <ProgressDashboard
+                    challenge={activeChallenge}
+                    template={activeTemplate}
+                    habits={activeHabits}
+                    checkins={checkins}
+                    resetEvents={resetEvents}
+                  />
+                ) : null}
 
-      {activeView === 'settings' && profile && settings ? (
-        <SettingsPanel profile={profile} settings={settings} onSave={handleSaveSettings} />
-      ) : null}
+                {!activeChallenge ? (
+                  <section className="panel empty-state" aria-labelledby="no-challenge-title">
+                    <p className="eyebrow">No active challenge</p>
+                    <h2 id="no-challenge-title">You haven't joined a challenge yet</h2>
+                    <p>Explore available challenge templates and preview their habits before committing.</p>
+                    <button
+                      className="primary-action"
+                      type="button"
+                      onClick={() => setActiveView('explore')}
+                      style={{ marginTop: '1rem' }}
+                    >
+                      Browse challenges →
+                    </button>
+                  </section>
+                ) : null}
+              </div>
 
-      {activeView === 'admin' ? (
-        <ProtectedView profile={profile} allowedRoles={['super_admin', 'moderator']}>
-          {profile && canModerate ? <AdminDashboard profile={profile} onNotify={notify} onRefreshApp={refreshApp} /> : null}
-        </ProtectedView>
-      ) : null}
+              {/* Right column: daily check-in */}
+              <div className="right-column" id="checkin-section">
+                {activeChallenge && activeTemplate ? (
+                  <>
+                    {loadingDetails ? <p className="loading-pill">Loading today's check-in...</p> : null}
+                    <DailyCheckIn
+                      challenge={activeChallenge}
+                      habits={activeHabits}
+                      checkins={checkins}
+                      reflection={reflection}
+                      defaultHabitVisibility={settings?.default_habit_visibility ?? 'private'}
+                      onSubmit={handleDailySubmit}
+                    />
+                  </>
+                ) : (
+                  <section className="panel empty-state">
+                    <p className="eyebrow">Daily check-in</p>
+                    <h2>Join a challenge to unlock check-ins</h2>
+                    <p className="muted">
+                      Templates define required and optional habits. Strict templates reset when required habits are missed.
+                    </p>
+                  </section>
+                )}
+              </div>
+            </main>
+          ) : null}
+
+          {/* ── Community ───────────────────────────────────────────────── */}
+          {activeView === 'community' ? (
+            <Community progress={publicProgress} reflections={publicReflections} onReportReflection={reportReflection} />
+          ) : null}
+
+          {/* ── Privacy settings ────────────────────────────────────────── */}
+          {activeView === 'settings' && profile && settings ? (
+            <SettingsPanel profile={profile} settings={settings} onSave={handleSaveSettings} />
+          ) : null}
+
+          {/* ── Admin / Moderation (role-gated) ─────────────────────────── */}
+          {activeView === 'admin' ? (
+            <ProtectedView profile={profile} allowedRoles={['super_admin', 'moderator']}>
+              {profile && canModerate ? (
+                <AdminDashboard profile={profile} onNotify={notify} onRefreshApp={refreshApp} />
+              ) : null}
+            </ProtectedView>
+          ) : null}
+
         </div>
       </div>
     </div>

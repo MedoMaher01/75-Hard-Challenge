@@ -1,209 +1,255 @@
-# 75 Day Habit Challenge Community
+# 75 Hard Challenge Community Platform
 
-A static React + TypeScript + Vite frontend backed by Supabase Auth, Postgres, RLS, RPCs, and realtime subscriptions. The product supports multi-user habit challenges, strict reset rules, daily reflections, community progress, and a production-grade role-based dashboard system.
+A privacy-first, community-oriented habit challenge tracker built with **React + TypeScript + Vite** and **Supabase**. Users join structured challenge templates, track daily habits, write reflections, and share progress — all with granular privacy controls enforced both client-side and via PostgreSQL Row-Level Security.
 
-## Features
+---
 
-- Email sign up, login, logout, and profile bootstrap.
-- User dashboard with challenge progress, streak, reset history, reflections, stats, and privacy controls.
-- Daily habit checklist with strict server-side reset logic.
-- Public leaderboard and community reflection feed filtered by privacy policies.
-- Role-based admin/moderator dashboard with protected management tools.
-- Supabase RLS policies and security-definer RPCs for privileged actions.
-- Reports, moderation queue, audit logs, bans, suspensions, featured content tables, and system settings.
-- Anti-cheat controls for future check-ins, past-day deadlines, duplicate submissions, and reset history.
-- Responsive mobile-first UI with sidebar navigation, loading states, empty states, error boundary, and toast notifications.
+## Architecture Overview
 
-## Tech Stack
+```
+src/
+├── App.tsx                  # Root — auth, data loading, view routing
+├── components/
+│   ├── AppHeader.tsx        # Top nav + dark mode toggle
+│   ├── DashboardSidebar.tsx # Sidebar nav
+│   ├── AuthView.tsx         # Sign up / log in
+│   ├── ChallengeExplorer.tsx # Browse & preview challenge templates
+│   ├── ActiveChallenge.tsx  # Active challenge status + leave
+│   ├── DailyCheckIn.tsx     # Daily habit checklist + reflection
+│   ├── ProgressDashboard.tsx# Progress bars + reset history
+│   ├── UserDashboard.tsx    # Personal stats home
+│   ├── Community.tsx        # Leaderboard + public reflection feed
+│   ├── SettingsPanel.tsx    # Profile + privacy settings
+│   ├── AdminDashboard.tsx   # Moderation + analytics (role-gated)
+│   ├── ProtectedView.tsx    # Client-side role guard
+│   ├── ErrorBoundary.tsx    # React error boundary
+│   ├── ToastHost.tsx        # Toast notification system
+│   └── SetupNotice.tsx      # Missing env vars notice
+└── lib/
+    ├── supabase.ts          # Supabase browser client
+    ├── api.ts               # All Supabase queries and RPC calls
+    ├── types.ts             # TypeScript interfaces
+    ├── dates.ts             # Date formatting utilities
+    └── theme.ts             # Dark mode persistence
 
-- React 19 + TypeScript + Vite
-- Supabase Auth
-- Supabase Postgres with RLS
-- Supabase RPCs for privileged writes
-- Supabase realtime for community updates
-- Static deployment on Vercel, Netlify, Cloudflare Pages, GitHub Pages, or Supabase hosting
-
-## Local Setup
-
-1. Install dependencies:
-
-```bash
-npm install
+supabase/
+├── schema.sql               # Core tables, RLS, triggers, RPCs
+├── seed.sql                 # Challenge templates and habits
+├── dashboard-rbac.sql       # RBAC tables, admin RPCs, moderation
+└── fixes.sql                # Targeted patches (run last)
 ```
 
-2. Create a free Supabase project.
+---
 
-3. Run the database SQL in this order from the Supabase SQL editor:
+## Database Schema
 
-```text
-supabase/schema.sql
-supabase/seed.sql
-supabase/dashboard-rbac.sql
+### Core Tables
+
+| Table | Purpose |
+|-------|---------|
+| `profiles` | One row per auth user. Holds display name, username, role, and account status |
+| `challenge_templates` | Admin-managed challenge blueprints (e.g. "Strict 75 Hard") |
+| `habit_definitions` | Habits belonging to a template (required vs optional) |
+| `challenges` | A user's active run of a template. Tracks day, streak, status |
+| `habit_checkins` | Per-habit, per-day completion records |
+| `reflections` | Daily journal entries with visibility control |
+| `reset_events` | Immutable log of streak resets for accountability |
+| `visibility_settings` | Per-user sharing preferences |
+| `follows` | Social graph (follower → following) |
+
+### Admin / RBAC Tables
+
+| Table | Purpose |
+|-------|---------|
+| `roles` | Role definitions with priority |
+| `permissions` | Named permission keys |
+| `role_permissions` | Many-to-many role↔permission mapping |
+| `reports` | User-submitted content reports |
+| `moderation_actions` | Audit trail of moderator actions |
+| `audit_logs` | All privileged admin actions |
+| `user_suspensions` | Suspension history per user |
+| `system_settings` | Key-value platform configuration |
+| `featured_content` | Admin-featured challenges/reflections |
+
+---
+
+## Role System
+
+| Role | Permissions |
+|------|------------|
+| `user` | Own data only |
+| `moderator` | Content moderation, user warnings, temporary suspensions |
+| `super_admin` | All of the above + bans, role management, template management, settings, audit logs |
+
+Role changes are gated by `admin_change_user_role` RPC which checks super-admin status and `users:manage_roles` permission. The `protect_profile_security_fields` trigger and column-level grants prevent direct client writes to `role`, `account_status`, suspension, ban, and soft-delete fields.
+
+**Only a super_admin can promote/demote other users.** Admins cannot change their own role through the RPC, and the last super_admin cannot be demoted.
+
+---
+
+## RLS Explanation
+
+All tables have RLS enabled. Key policy patterns:
+
+- **Profiles**: Readable when public + active, or are buddies, or viewer is moderator
+- **Challenges**: Readable when owned, or moderator, or owner is public + leaderboard opted in
+- **Habit checkins**: Readable when owned, or moderator, or challenge visible + `show_completed_habits` on + not private
+- **Reflections**: Readable when owned, or moderator, or (not hidden + `show_reflections` on + visibility matches)
+- **Templates/Habits**: Readable by all authenticated users (active only; inactive visible to admins)
+- **Follows/Buddies**: New follow rows are always `pending`; only the recipient can approve or block a request. Buddy-only visibility requires an `accepted`, non-deleted relationship.
+
+Security-definer helper functions (`is_moderator`, `can_view_challenge`, `are_buddies`, etc.) are called inside policies so they run with elevated privileges without exposing logic to callers.
+
+### Phase 1 Security Stabilization
+
+`supabase/fixes.sql` contains the current final hardening layer. Run it last. It intentionally overrides earlier broad grants/policies without rebuilding the database.
+
+Security fixes included:
+
+- Follow/buddy requests default to `pending`; clients cannot self-create `accepted` or `blocked` trust relationships.
+- Buddy visibility now ignores soft-deleted follow rows.
+- Direct client writes to challenge lifecycle fields are blocked with column-level grants. Users can create challenges with safe join columns only; streaks, day counters, resets, status, and last check-in are updated by RPCs.
+- Direct client writes to `habit_checkins` are revoked; daily check-ins are written by `submit_daily_checkin`.
+- Direct profile writes are limited to public profile fields. Role and account-status changes must go through admin RPCs.
+- `admin_change_user_role` explicitly requires super-admin authority and disallows changing the caller's own role.
+- Reflection ownership is validated so `reflections.user_id` must match the owner of `reflections.challenge_id`.
+- Reporting a reflection now requires that the reporter can view that reflection.
+
+---
+
+## Challenge Lifecycle
+
+```
+[Browse templates in ChallengeExplorer]
+        ↓
+[Join → challenge row created, status=active]
+        ↓
+[Daily check-in via submit_daily_checkin RPC]
+        ↓  ← Strict mode: missed required habit → reset_event inserted, streak=0
+        ↓  ← Gap missed (day skipped) → same
+        ↓
+[current_streak reaches duration_days → status=completed]
+        ↓
+[User can leave at any time → deleted_at set, challenge archived]
 ```
 
-4. Copy the environment example:
+The `submit_daily_checkin` RPC is an atomic, security-definer function that:
+1. Validates ownership and account status
+2. Rejects future dates and past dates beyond the deadline
+3. Upserts all habit checkin rows
+4. Evaluates reset conditions
+5. Updates challenge counters
+6. Upserts or soft-deletes the reflection
+7. Writes an audit log entry on reset
 
-```bash
-cp .env.example .env.local
-```
-
-5. Fill in `.env.local`:
-
-```bash
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-public-publishable-key
-```
-
-6. Start the app:
-
-```bash
-npm run dev
-```
-
-## Production Build
-
-```bash
-npm run build
-```
-
-The static output is created in `dist/`. Configure your host with `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
-
-## Dashboard Overview
-
-- `Dashboard`: user command center with current streak, day, daily completion, privacy status, reflection preview, reset history, and challenge stats.
-- `Today`: challenge template picker, active challenge selector, daily checklist, reflection editor, and strict reset confirmation.
-- `Community`: public leaderboard and shared lessons. Private accounts and private reflections are filtered by RLS.
-- `Privacy`: profile, account privacy, habit visibility defaults, reflection sharing, and leaderboard settings.
-- `Admin` or `Moderation`: role-protected management dashboard for moderators and super admins.
-
-## Roles
-
-- `user`: can manage their own profile, challenges, check-ins, reflections, privacy settings, and public community participation.
-- `moderator`: can review reports, hide/unhide content, dismiss reports, warn users, and temporarily suspend normal users.
-- `super_admin`: full system access, including role changes, bans, template management, system settings, audit logs, and destructive content moderation.
-
-Moderators cannot change roles, ban users, delete content, manage settings, manage templates, or access audit logs. These restrictions are enforced in Supabase RPCs and policies, not only in the frontend.
+---
 
 ## Admin Setup
 
-After creating your first account, promote it from the Supabase SQL editor:
+1. Sign up as the first user
+2. In Supabase SQL editor, run:
+   ```sql
+   update public.profiles
+   set role = 'super_admin'
+   where id = '<your-user-uuid>';
+   ```
+3. The `Admin` tab will appear automatically in the UI (role check happens client-side; all admin actions re-check server-side)
 
-```sql
-update public.profiles
-set role = 'super_admin'
-where username = 'your_username';
+---
+
+## Environment Variables
+
+Copy `.env.example` to `.env.local`:
+
+```env
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
 ```
 
-Use the Admin dashboard to assign future moderators or super admins. The `admin_change_user_role` RPC prevents non-super-admin role changes and prevents removing the last super admin.
+> ⚠️ Never use the `service_role` key in the frontend. The anon key is safe — all access is controlled by RLS.
 
-## Database Model
+`.env.local` is intentionally ignored by git. Do not commit real environment files. Vercel should receive the same two `VITE_` variables through the project dashboard.
 
-Core tables:
+---
 
-- `profiles`
-- `visibility_settings`
-- `challenge_templates`
-- `habit_definitions`
-- `challenges`
-- `habit_checkins`
-- `reflections`
-- `reset_events`
-- `follows`
+## Supabase Setup
 
-Dashboard and security tables:
+1. Create a new Supabase project
+2. In the SQL editor, run the files **in order**:
+   ```
+   supabase/schema.sql
+   supabase/seed.sql
+   supabase/dashboard-rbac.sql
+   supabase/fixes.sql
+   ```
+3. Treat `fixes.sql` as the final patch layer. It contains security and integrity corrections that supersede overlapping definitions in the earlier files.
+4. In Authentication → Email, disable "Confirm email" for local dev (or configure your SMTP)
+5. Enable Realtime for the `challenges` and `reflections` tables (schema.sql does this automatically)
 
-- `roles`
-- `permissions`
-- `role_permissions`
-- `reports`
-- `moderation_actions`
-- `audit_logs`
-- `user_suspensions`
-- `featured_content`
-- `system_settings`
+### Migration Notes
 
-Most mutable tables include `created_at`, `updated_at`, and `deleted_at`. Destructive moderation uses soft deletes where possible.
+This project currently uses ordered SQL files rather than a full migration history. Some objects are created in `schema.sql` and intentionally replaced later by `dashboard-rbac.sql` or `fixes.sql`. Do not run the files out of order. For production, prefer adding new incremental patch files instead of editing historical SQL after deployment.
 
-## Security Architecture
+---
 
-- Frontend route protection is UX only. Supabase remains the source of truth.
-- RLS limits normal users to their own data and allowed public/community data.
-- Privileged actions go through security-definer RPCs that re-check role and permission state.
-- Profile security fields such as `role`, `account_status`, `suspended_until`, `banned_at`, and `deleted_at` are protected by triggers.
-- Reflection moderation fields such as `is_hidden`, `reports_count`, and `deleted_at` are protected by triggers.
-- Super-admin-only actions are checked with `has_permission(...)` and audited.
-- Moderator actions are limited server-side even if a malicious client calls RPCs directly.
+## Vercel Deployment
 
-## RLS Summary
+1. Connect your GitHub repo to Vercel
+2. Set environment variables in Vercel dashboard:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+3. Build command: `npm run build`
+4. Output directory: `dist`
 
-- Users can read and update their own profile and visibility settings.
-- Users can create and update only their own challenges, check-ins, and reflections.
-- Public challenge and reflection reads are filtered by account privacy and visibility settings.
-- Moderators can read moderation queues and perform limited moderation through RPCs.
-- Super admins can read audit logs and manage templates/settings through RPCs.
-- Audit logs are readable only by users with `audit:read` permission.
+In Supabase → Authentication → URL Configuration, add your Vercel domain to **Allowed Redirect URLs**.
 
-## Moderation Workflow
+---
 
-1. A user reports a public reflection from the community feed.
-2. `report_reflection(...)` inserts or updates a `reports` row and increments `reports_count` server-side.
-3. Moderators open the protected Moderation dashboard.
-4. Moderators can hide content, dismiss reports, warn users, or temporarily suspend normal users.
-5. Super admins can delete content, ban users, change roles, update templates, update settings, and review audit logs.
-6. Every privileged action writes to `moderation_actions` and/or `audit_logs`.
-
-## Anti-Cheat Rules
-
-- Future check-ins are rejected by `submit_daily_checkin(...)`.
-- Past check-ins are rejected after the configured UTC deadline.
-- A user cannot edit older days after a newer submission exists.
-- Habit check-ins are unique by challenge, habit, and date.
-- Required habit misses trigger reset events in the same backend transaction.
-- Suspended or banned accounts cannot submit check-ins or reports.
-
-The default past-day deadline is controlled by `system_settings.checkin_deadline_hours` and can be changed by a super admin.
-
-## Optional Demo Data
-
-After signing up at least one user and running all schema files, you can run:
-
-```text
-supabase/demo-data.sql
-```
-
-It attaches a demo challenge, check-ins, public reflection, and reset event to the first profile.
-
-## Verification
-
-Run:
+## Development Workflow
 
 ```bash
+# Install dependencies
+npm install
+
+# Start dev server
 npm run dev
+
+# Type-check + build
 npm run build
+
+# Preview production build
+npm run preview
 ```
 
-Manual checks:
-
-- User can sign up, join a challenge, and check in.
-- User cannot access Admin/Moderation without `moderator` or `super_admin` role.
-- Moderator can hide reports and suspend normal users only.
-- Moderator cannot change roles, ban users, delete content, manage templates/settings, or view audit logs.
-- Super admin can manage roles, bans, templates, settings, and audit logs.
-- Users can only update their own profile, visibility settings, check-ins, and reflections.
-- Public feed does not expose private reflections or private accounts.
+---
 
 ## Troubleshooting
 
-- If the app shows setup required, confirm `.env.local` has the two `NEXT_PUBLIC_SUPABASE_*` variables.
-- If Admin dashboard calls fail, confirm `supabase/dashboard-rbac.sql` was run after `schema.sql` and `seed.sql`.
-- If reports do not appear, confirm RLS is enabled and the user has `moderator` or `super_admin` role.
-- If check-ins fail for yesterday, check the `checkin_deadline_hours` system setting.
-- If role changes fail, confirm the acting user is `super_admin` and that at least one super admin remains.
+### "Could not load application data" on login
+- Check your `.env.local` has correct `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
+- Verify all SQL files have been run in order
 
-## Current Limitations
+### 403 on challenge creation
+- The unique index `challenges_one_active_per_template_idx` prevents duplicate active challenges for the same template — this is intentional
+- If you see `42501`, your account may be suspended
 
-- No email delivery for warnings or suspensions yet.
-- No dedicated notification inbox yet.
-- No pagination UI beyond server-limited dashboard lists.
-- No full template habit editor yet; the dashboard supports template activation, naming, and strict-mode management.
-- Timezone handling uses Supabase/Postgres date and UTC deadline settings for reliability.
+### Admin tab not showing
+- Your profile's `role` column must be `moderator` or `super_admin` — update it directly in Supabase
+
+### Common RLS issues
+- **Profile not visible**: check `is_private` and `account_status` columns
+- **Reflection not in community feed**: check `visibility = 'public'`, `is_hidden = false`, and the author's `show_reflections` setting
+- **Checkins not loading**: the RLS policy requires `owns_challenge()` — verify `user_id` matches the logged-in user
+
+### Past check-in rejected
+- The `checkin_deadline_hours` system setting (default: 4 hours) controls the window for editing yesterday's check-in. After 04:00 UTC, yesterday is locked.
+
+---
+
+## Technical Debt / Known Limitations
+
+- No pagination on leaderboard or community feed (hardcoded 20-item limit)
+- No buddy/follow UI — the `follows` table exists but there is no follow/unfollow component
+- Avatar upload not implemented — `avatar_url` column exists but is unused
+- Admin template editing only supports top-level fields; editing individual habit definitions requires a SQL migration
+- No email notifications for moderation actions

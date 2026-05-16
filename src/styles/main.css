@@ -1,4 +1,5 @@
-:root {
+:root,
+[data-theme="light"] {
   color-scheme: light;
   --bg: #f5f1e8;
   --bg-strong: #ebe2d2;
@@ -24,6 +25,54 @@
   --radius-sm: 12px;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1109;
+  --bg-strong: #1a1d12;
+  --panel: rgba(26, 29, 18, 0.94);
+  --panel-solid: #1e2115;
+  --text: #edeadf;
+  --muted: #8a8574;
+  --muted-strong: #b0aa98;
+  --line: #2e3222;
+  --line-strong: #3d4430;
+  --accent: #5aad7c;
+  --accent-2: #d9834a;
+  --accent-soft: #1a2e20;
+  --danger: #c96060;
+  --danger-soft: #2d1414;
+  --success: #4bae72;
+  --success-soft: #122412;
+  --faith: #8b7de0;
+  --faith-soft: #1e1a3a;
+  --shadow: 0 22px 55px rgba(0, 0, 0, 0.45);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f1109;
+    --bg-strong: #1a1d12;
+    --panel: rgba(26, 29, 18, 0.94);
+    --panel-solid: #1e2115;
+    --text: #edeadf;
+    --muted: #8a8574;
+    --muted-strong: #b0aa98;
+    --line: #2e3222;
+    --line-strong: #3d4430;
+    --accent: #5aad7c;
+    --accent-2: #d9834a;
+    --accent-soft: #1a2e20;
+    --danger: #c96060;
+    --danger-soft: #2d1414;
+    --success: #4bae72;
+    --success-soft: #122412;
+    --faith: #8b7de0;
+    --faith-soft: #1e1a3a;
+    --shadow: 0 22px 55px rgba(0, 0, 0, 0.45);
+  }
 }
 
 * {
@@ -1147,3 +1196,219 @@ tr:last-child td {
     scroll-behavior: auto;
   }
 }
+
+/* ── Challenge Explorer ─────────────────────────────────────────── */
+.explorer-layout {
+  display: grid;
+  gap: 1rem;
+}
+
+.explorer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.explorer-header h1 {
+  margin: 0.35rem 0 0;
+  font-size: clamp(2.2rem, 5vw, 4rem);
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+
+.explorer-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.explorer-card {
+  display: grid;
+  gap: 1rem;
+  transition: box-shadow 0.2s;
+}
+
+.explorer-card.expanded {
+  border-color: rgba(90, 173, 124, 0.45);
+}
+
+.explorer-card-header h2 {
+  margin: 0.6rem 0 0.3rem;
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  letter-spacing: -0.03em;
+}
+
+.explorer-desc {
+  margin: 0;
+  color: var(--muted-strong);
+  line-height: 1.55;
+}
+
+.explorer-summary {
+  display: flex;
+  gap: 1.2rem;
+  margin-top: 0.75rem;
+  color: var(--muted-strong);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.explorer-habits {
+  border-top: 1px solid var(--line);
+  padding-top: 1rem;
+}
+
+.habits-section-label {
+  margin: 0 0 0.5rem;
+  color: var(--danger);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.habits-section-label.optional-label {
+  margin-top: 0.85rem;
+  color: var(--muted-strong);
+}
+
+.explorer-habit-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.explorer-habit-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.25);
+  padding: 0.65rem 0.85rem;
+}
+
+[data-theme="dark"] .explorer-habit-row {
+  background: rgba(255,255,255,0.04);
+}
+
+.explorer-habit-name {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.explorer-habit-name strong { font-size: 0.95rem; }
+.explorer-habit-name small { color: var(--muted); }
+
+.vis-badge { font-size: 0.7rem !important; }
+
+.explorer-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--line);
+  padding-top: 0.85rem;
+}
+
+/* ── Active Challenge Panel ─────────────────────────────────────── */
+.active-challenge-panel .metric-grid { margin-top: 0.75rem; }
+
+.active-challenge-actions {
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.leave-btn { color: var(--danger) !important; border-color: rgba(157,44,44,0.3) !important; }
+
+.leave-confirm-box {
+  margin-top: 1rem;
+  border: 1px dashed rgba(157,44,44,0.4);
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  padding: 1rem;
+}
+
+.leave-confirm-box h3 { margin: 0.25rem 0 0.5rem; }
+
+/* ── Admin overlay prompt ───────────────────────────────────────── */
+.prompt-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(4px);
+}
+
+.prompt-box {
+  width: min(480px, calc(100vw - 2rem));
+  padding: 1.5rem;
+}
+
+.inline-prompt { display: grid; gap: 0.75rem; }
+
+/* ── New template form ──────────────────────────────────────────── */
+.new-template-form {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.habit-form-row {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem;
+  background: rgba(255,255,255,0.2);
+}
+
+[data-theme="dark"] .habit-form-row { background: rgba(255,255,255,0.04); }
+
+/* ── Dark mode toggle ────────────────────────────────────────────── */
+.theme-toggle {
+  font-size: 1.1rem;
+  padding: 0.5rem 0.65rem !important;
+  border-radius: 50% !important;
+  line-height: 1;
+}
+
+.theme-toggle-sidebar {
+  width: 100%;
+  border-radius: var(--radius-md) !important;
+  text-align: left;
+  font-weight: 800;
+  font-size: 0.9rem;
+  padding: 0.7rem 1rem !important;
+}
+
+/* ── Dark mode body background ───────────────────────────────────── */
+[data-theme="dark"] body {
+  background:
+    radial-gradient(circle at top left, rgba(90, 173, 124, 0.12), transparent 32rem),
+    radial-gradient(circle at top right, rgba(40, 75, 58, 0.15), transparent 30rem),
+    var(--bg);
+}
+
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+  background: rgba(255,255,255,0.07);
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+[data-theme="dark"] code {
+  background: rgba(255,255,255,0.1);
+}
+
+/* ── Today view layout label ─────────────────────────────────────── */
+.today-view { /* inherits .content-grid */ }
+

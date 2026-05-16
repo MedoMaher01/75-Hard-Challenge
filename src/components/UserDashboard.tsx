@@ -21,6 +21,7 @@ interface UserDashboardProps {
   resetEvents: ResetEvent[];
   reflection: Reflection | null;
   onOpenToday: () => void;
+  onOpenExplore: () => void;
   onOpenSettings: () => void;
   onTogglePrivate: () => Promise<void>;
 }
@@ -36,6 +37,7 @@ export function UserDashboard({
   resetEvents,
   reflection,
   onOpenToday,
+  onOpenExplore,
   onOpenSettings,
   onTogglePrivate,
 }: UserDashboardProps) {
@@ -134,7 +136,17 @@ export function UserDashboard({
               </dl>
             </>
           ) : (
-            <p className="muted">Join a challenge template to populate your dashboard.</p>
+          <p className="muted">
+              Join a challenge template to populate your dashboard.{' '}
+              <button
+                className="ghost-button"
+                type="button"
+                style={{ display: 'inline', padding: '0.2rem 0.6rem', fontSize: '0.9rem' }}
+                onClick={onOpenExplore}
+              >
+                Browse challenges →
+              </button>
+            </p>
           )}
         </section>
 

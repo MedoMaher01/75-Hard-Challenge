@@ -12,6 +12,7 @@ import type {
   HabitDefinition,
   HabitVisibility,
   ModerationReport,
+  NewTemplateInput,
   Profile,
   PublicProgress,
   PublicReflection,
@@ -82,6 +83,7 @@ export async function loadTemplates(): Promise<TemplateWithHabits[]> {
     .from('challenge_templates')
     .select('*, habit_definitions(*)')
     .eq('is_active', true)
+    .is('deleted_at', null)
     .order('sort_order', { ascending: true })
     .order('sort_order', { foreignTable: 'habit_definitions', ascending: true });
 
@@ -93,6 +95,7 @@ export async function loadManageableTemplates(): Promise<TemplateWithHabits[]> {
   const { data, error } = await supabase
     .from('challenge_templates')
     .select('*, habit_definitions(*)')
+    .is('deleted_at', null)
     .order('sort_order', { ascending: true })
     .order('sort_order', { foreignTable: 'habit_definitions', ascending: true });
 
@@ -105,6 +108,8 @@ export async function loadUserChallenges(userId: string): Promise<Challenge[]> {
     .from('challenges')
     .select('*, challenge_templates(*)')
     .eq('user_id', userId)
+    // BUGFIX: exclude soft-deleted challenges so they don't appear in the picker
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -124,8 +129,23 @@ export async function createChallenge(userId: string, template: ChallengeTemplat
     .select('*, challenge_templates(*)')
     .single();
 
-  if (error) throw error;
+  if (error) {
+    // The unique index challenges_one_active_per_template_idx will produce a
+    // 23505 unique_violation if the user tries to join the same active template twice.
+    if (error.code === '23505') {
+      throw new Error('You already have an active challenge for this template. Complete or leave it first.');
+    }
+    throw error;
+  }
   return data as Challenge;
+}
+
+export async function leaveChallenge(challengeId: string): Promise<void> {
+  const { error } = await supabase.rpc('owner_leave_challenge', {
+    p_challenge_id: challengeId,
+  });
+
+  if (error) throw error;
 }
 
 export async function loadDailyCheckins(challengeId: string, checkinDate = todayISO()): Promise<HabitCheckin[]> {
@@ -133,7 +153,8 @@ export async function loadDailyCheckins(challengeId: string, checkinDate = today
     .from('habit_checkins')
     .select('*')
     .eq('challenge_id', challengeId)
-    .eq('checkin_date', checkinDate);
+    .eq('checkin_date', checkinDate)
+    .is('deleted_at', null);
 
   if (error) throw error;
   return (data ?? []) as HabitCheckin[];
@@ -145,6 +166,7 @@ export async function loadTodayReflection(challengeId: string, checkinDate = tod
     .select('*')
     .eq('challenge_id', challengeId)
     .eq('reflection_date', checkinDate)
+    .is('deleted_at', null)
     .maybeSingle();
 
   if (error) throw error;
@@ -156,6 +178,7 @@ export async function loadResetEvents(challengeId: string): Promise<ResetEvent[]
     .from('reset_events')
     .select('*')
     .eq('challenge_id', challengeId)
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(10);
 
@@ -191,6 +214,8 @@ export async function loadPublicProgress(): Promise<PublicProgress[]> {
     .from('challenges')
     .select('id, title, current_day, current_streak, status, updated_at, profiles(display_name, username), challenge_templates(name, duration_days)')
     .in('status', ['active', 'completed'])
+    // BUGFIX: exclude soft-deleted challenges
+    .is('deleted_at', null)
     .order('current_streak', { ascending: false })
     .limit(20);
 
@@ -204,6 +229,7 @@ export async function loadPublicReflections(): Promise<PublicReflection[]> {
     .select('*, profiles(display_name, username), challenges(title)')
     .eq('visibility', 'public')
     .eq('is_hidden', false)
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(20);
 
@@ -240,6 +266,8 @@ export async function updateVisibilitySettings(
   if (error) throw error;
 }
 
+// BUGFIX: Pass the reason argument to match the two-argument RPC signature.
+// The old single-argument version was dropped in dashboard-rbac.sql.
 export async function reportReflection(reflectionId: string, reason = 'Community report') {
   const { error } = await supabase.rpc('report_reflection', {
     p_reflection_id: reflectionId,
@@ -338,6 +366,32 @@ export async function updateChallengeTemplate(template: Pick<ChallengeTemplate, 
     p_description: template.description,
     p_is_active: template.is_active,
     p_strict_mode: template.strict_mode,
+  });
+
+  if (error) throw error;
+}
+
+export async function createChallengeTemplate(input: NewTemplateInput): Promise<string> {
+  const { data, error } = await supabase.rpc('admin_create_template', {
+    p_slug: input.slug,
+    p_name: input.name,
+    p_description: input.description,
+    p_duration_days: input.duration_days,
+    p_strict_mode: input.strict_mode,
+    p_category: input.category,
+    p_is_religious: input.is_religious,
+    p_sort_order: input.sort_order,
+    p_habits: input.habits,
+  });
+
+  if (error) throw error;
+  return data as string;
+}
+
+export async function deleteChallengeTemplate(templateId: string, reason: string) {
+  const { error } = await supabase.rpc('admin_delete_template', {
+    p_template_id: templateId,
+    p_reason: reason,
   });
 
   if (error) throw error;

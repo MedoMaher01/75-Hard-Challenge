@@ -11,7 +11,9 @@ export function formatShortDate(value: string | null | undefined) {
   }).format(new Date(`${value}T00:00:00`));
 }
 
-export function formatTimestamp(value: string) {
+// BUGFIX: Guard against null / undefined / empty string to prevent crashes.
+export function formatTimestamp(value: string | null | undefined) {
+  if (!value) return '—';
   return new Intl.DateTimeFormat(undefined, {
     month: 'short',
     day: 'numeric',

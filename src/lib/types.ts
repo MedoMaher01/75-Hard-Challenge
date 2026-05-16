@@ -206,3 +206,26 @@ export interface AuditLogEntry {
   metadata: Record<string, unknown>;
   created_at: string;
 }
+
+/** Input shape for creating a new challenge template via admin_create_template RPC */
+export interface NewHabitInput {
+  name: string;
+  description: string;
+  is_required: boolean;
+  visibility_default: HabitVisibility;
+  sort_order: number;
+}
+
+export interface NewTemplateInput {
+  slug: string;
+  name: string;
+  description: string;
+  duration_days: number;
+  strict_mode: boolean;
+  category: string;
+  is_religious: boolean;
+  sort_order: number;
+  habits: NewHabitInput[];
+}
+
+export type Theme = 'light' | 'dark';
